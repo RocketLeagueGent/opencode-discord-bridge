@@ -7,7 +7,15 @@ test("throws listing missing keys", () => {
 })
 
 test("returns normalized config", () => {
-  const cfg = loadConfig({ DISCORD_BOT_TOKEN: "t", WEBHOOK_URL: "w", SESSION_ID: "s" })
+  const cfg = loadConfig({ DISCORD_BOT_TOKEN: "t", WEBHOOK_URL: "w", SESSION_ID: "s", OWNER_USER_ID: "123" })
   assert.equal(cfg.channelId, "1568362384114983085")
   assert.equal(cfg.sessionId, "s")
+  assert.equal(cfg.ownerUserId, "123")
+})
+
+test("missing OWNER_USER_ID listed in error", () => {
+  assert.throws(
+    () => loadConfig({ DISCORD_BOT_TOKEN: "t", WEBHOOK_URL: "w", SESSION_ID: "s" }),
+    /OWNER_USER_ID/,
+  )
 })
