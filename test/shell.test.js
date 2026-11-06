@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { buildShellReview, parseVerdict } from "../src/shell.js"
+import { buildShellReview, parseVerdict, runShell } from "../src/shell.js"
 
 test("buildShellReview embeds user, cmd, and verdict keywords", () => {
   const p = buildShellReview({ user: "Rocket", cmd: "dir C:\\" })
@@ -32,3 +32,29 @@ test("empty reply yields null verdict", () => {
   assert.equal(parseVerdict("").verdict, null)
   assert.equal(parseVerdict("   \n  ").verdict, null)
 })
+
+test("runShell executes and captures output", async () => {
+  const r = await runShell("node -e \"console.log('hi')\"", { cwd: "." })
+  assert.equal(r.exitCode, 0)
+  assert.match(r.output, /hi/)
+})
+
+test("runShell reports non-zero exit", async () => {
+  const r = await runShell("node -e \"process.exit(3)\"", { cwd: "." })
+  assert.equal(r.exitCode, 3)
+})
+
+test("runShell caps huge output", async () => {
+  const r = await runShell("node -e \"console.log('A'.repeat(5000))\"", { cwd: "." })
+  assert.ok(r.output.length <= 1500, `len ${r.output.length}`)
+  assert.match(r.output, /truncated/)
+  assert.match(r.output, /^A/)
+  assert.match(r.output, /A\n?$/)
+})
+
+test("runShell failing command yields non-zero and stderr", async () => {
+  const r = await runShell("definitely_not_a_command_xyz", { cwd: "." })
+  assert.notEqual(r.exitCode, 0)
+  assert.ok(r.output.length > 0)
+})
+

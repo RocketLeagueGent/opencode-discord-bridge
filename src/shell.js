@@ -1,3 +1,5 @@
+import { exec } from "node:child_process"
+
 export function buildShellReview({ user, cmd }) {
   return [
     `[Shell review] ${user} requested this shell command in Discord:`,
@@ -17,4 +19,24 @@ export function parseVerdict(replyText) {
   if (first !== "APPROVE" && first !== "REJECT") return { verdict: null, reason: "" }
   const reason = lines.slice(firstIdx + 1).join("\n").trim()
   return { verdict: first, reason }
+}
+
+export function runShell(cmd, { cwd, timeoutMs = 30000, maxOutput = 1500 } = {}) {
+  return new Promise((resolve) => {
+    exec(cmd, { cwd, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      let output = `${stdout ?? ""}${stderr ?? ""}`
+      if (output.length > maxOutput) {
+        const marker = "\n…[truncated]…\n"
+        const head = Math.floor((maxOutput - marker.length) / 2)
+        const tail = maxOutput - marker.length - head
+        output = output.slice(0, head) + marker + output.slice(-tail)
+      }
+      let exitCode = 0
+      if (err) {
+        exitCode = typeof err.code === "number" ? err.code : 1
+        if (err.killed) output += "\n…[timeout]…"
+      }
+      resolve({ exitCode, output })
+    })
+  })
 }
