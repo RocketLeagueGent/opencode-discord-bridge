@@ -18,8 +18,8 @@ test("append within interval is suppressed", () => {
 test("append after interval emits accumulated text", () => {
   const s = createStream({ editIntervalMs: 1500 })
   s.append("Hello", 0)
-  s.append("Hello world", 100)
-  const r = s.append("Hello world, again", 1600)
+  s.append(" world", 100)
+  const r = s.append(", again", 1600)
   assert.equal(r.edit, "Hello world, again")
 })
 
@@ -35,6 +35,7 @@ test("finalize caps base at 2000 and chunks overflow losslessly", () => {
   const s = createStream({ editIntervalMs: 1500 })
   const full = "x".repeat(2500)
   s.append(full.slice(0, 1000), 0)
+  s.append(full.slice(1000), 3000)
   const r = s.finalize(5000)
   assert.equal(r.base, full.slice(0, 2000))
   assert.equal(r.forceEdit.length, 2000)
