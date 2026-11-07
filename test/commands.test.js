@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { registrationBody } from "../src/commands.js"
+import { registrationBody, registerCommands } from "../src/commands.js"
 
 test("registers the exact v2 command set", () => {
   const names = registrationBody().map(c => c.name).sort()
@@ -26,4 +26,24 @@ test("descriptions are within Discord limits", () => {
   for (const c of registrationBody()) {
     assert.ok(c.description.length > 0 && c.description.length <= 100, `${c.name} description bad`)
   }
+})
+
+test("registerCommands PUTs body to guild endpoint", async () => {
+  const calls = []
+  const fakeFetch = async (url, opts) => {
+    calls.push({ url, opts })
+    return { ok: true, json: async () => registrationBody() }
+  }
+  await registerCommands("app1", "guild1", "secret-token", fakeFetch)
+  assert.equal(calls.length, 1)
+  assert.match(calls[0].url, /\/applications\/app1\/guilds\/guild1\/commands$/)
+  assert.equal(calls[0].opts.method, "PUT")
+  assert.equal(calls[0].opts.headers.Authorization, "Bot secret-token")
+  const body = JSON.parse(calls[0].opts.body)
+  assert.deepEqual(body.map(c => c.name).sort(), registrationBody().map(c => c.name).sort())
+})
+
+test("registerCommands fails on non-ok response", async () => {
+  const fakeFetch = async () => ({ ok: false, status: 403, json: async () => ({}) })
+  await assert.rejects(() => registerCommands("a", "g", "t", fakeFetch), /403/)
 })

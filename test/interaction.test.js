@@ -8,7 +8,7 @@ function fakeInteraction({ commandName, user = { id: "owner-1" }, getString = ()
     commandName,
     user,
     options: { getString },
-    deferred,
+    deferred: false,
     deferReply: async (opts) => {
       calls.deferred = true
       calls.ephemeral = opts?.ephemeral
@@ -37,7 +37,7 @@ function fakeDeps(overrides = {}) {
 }
 
 test("non-owner /shell refused without review prompt", async () => {
-  const i = fakeInteraction({ commandName: "shell" })
+  const i = fakeInteraction({ commandName: "shell", user: { id: "someone-else", username: "mallory" } })
   let prompted = false
   const deps = fakeDeps({ promptForReview: async () => { prompted = true; return "APPROVE" } })
   await handleInteraction(i, deps)

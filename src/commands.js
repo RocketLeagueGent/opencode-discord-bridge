@@ -42,3 +42,14 @@ export function registrationBody() {
     ...(options ? { options } : {}),
   }))
 }
+
+export async function registerCommands(applicationId, guildId, token, fetchImpl = fetch) {
+  const res = await fetchImpl(`https://discord.com/api/v10/applications/${applicationId}/guilds/${guildId}/commands`, {
+    method: "PUT",
+    headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(registrationBody()),
+  })
+  if (!res.ok) throw new Error(`command registration responded ${res.status}`)
+  const list = await res.json()
+  console.log(`registered ${Array.isArray(list) ? list.length : 0} slash commands on guild ${guildId}`)
+}
