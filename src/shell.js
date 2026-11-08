@@ -1,5 +1,37 @@
 import { exec } from "node:child_process"
 
+// Resolves on the first matching session event after subscription; rejects on
+// timeout. `isStale(event)` lets the caller skip idles that belong to an
+// earlier turn. Listener is always removed (resolve or timeout) so a stray
+// later idle cannot re-settle a finished turn.
+export function awaitSessionTurn(emitter, { timeoutMs = 120000, isStale = () => false, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      cleanup()
+      reject(new Error("session turn aborted"))
+    }
+    const onEvent = (event) => {
+      if (isStale(event)) return
+      cleanup()
+      resolve(event)
+    }
+    const timer = setTimeout(() => {
+      cleanup()
+      reject(new Error(`session turn timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+    function cleanup() {
+      clearTimeout(timer)
+      signal?.removeEventListener("abort", onAbort)
+      emitter.off("session.idle", onEvent)
+    }
+    if (signal) {
+      if (signal.aborted) return onAbort()
+      signal.addEventListener("abort", onAbort, { once: true })
+    }
+    emitter.on("session.idle", onEvent)
+  })
+}
+
 export function buildShellReview({ user, cmd }) {
   return [
     `[Shell review] ${user} requested this shell command in Discord:`,

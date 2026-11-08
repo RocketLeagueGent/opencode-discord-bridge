@@ -22,6 +22,7 @@ Turn the working text-only bridge into a full-featured Discord presence: native 
 
 - No wake word, no always-on STT in Phase 1.
 - No cloud TTS/STT APIs by default — local/offline engines only (no keys, no cost) unless the user later opts in.
+- **Screen-share/video in voice channels: OUT OF SCOPE (2026-11-07).** User requested bot screen-share ("stream applications and stuff"); research found no official Discord bot video API — voice docs have no video section, `@discordjs/voice` (0.19.2) is audio-only, and the only npm video libraries (`@dank074/discord-video-stream` et al.) are selfbot experiments violating Discord ToS. Gateway video opcodes (v3+) exist but are undocumented for bots, and DAVE E2EE (mandatory since 2026-03-01) makes reverse-engineering worse. User accepted audio-only. Revisit only if Discord documents bot video.
 - No permissions system beyond the owner-only `/shell` allowlist (testing-server trust model unchanged).
 - No multi-server support; one guild, one channel, one paired session (as v1).
 - The bridge must never execute a `/shell` command without a recorded verdict from the agent session.
@@ -45,7 +46,7 @@ Turn the working text-only bridge into a full-featured Discord presence: native 
 
 **STT engine:** candidates — Windows built-in SAPI recognition (zero-install, English-only), Vosk (offline Node bindings, ~50MB model), whisper.cpp (best quality, heaviest). Decision deferred to plan: start with zero-install option, evaluate quality on real voice-channel audio, swap if inadequate.
 
-**TTS engine:** Windows built-in speech synthesis (SAPI/System.Speech) → WAV → resample to 48kHz → `AudioPlayer`. No ffmpeg dependency assumed; manual WAV parse/resample if ffmpeg absent (builder verifies).
+**TTS engine:** Piper (local neural TTS — offline, free, no keys) → WAV → resample to 48kHz → `AudioPlayer`. **Overturned 2026-11-07:** original decision was Windows SAPI/System.Speech; user ruled "NOT window's TTS" — Piper chosen (user: "Whatever you want"). No ffmpeg dependency assumed; manual WAV parse/resample if ffmpeg absent (builder verifies).
 
 ## Decisions (user-made)
 

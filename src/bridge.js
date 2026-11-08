@@ -2,6 +2,7 @@ import { OpenCode } from "@opencode/client"
 import { Service } from "@opencode/client/service"
 import { Client, GatewayIntentBits } from "discord.js"
 import { readFileSync } from "node:fs"
+import { EventEmitter } from "node:events"
 import { shouldPrompt } from "./filter.js"
 import { createQueue } from "./queue.js"
 import { buildPrompt } from "./prompt.js"
@@ -11,7 +12,7 @@ import { postWebhook, editWebhookMessage } from "./webhook.js"
 import { handleInteraction } from "./interaction.js"
 import { registerCommands } from "./commands.js"
 import { createFeedGate, formatToolLine } from "./feed.js"
-import { runShell } from "./shell.js"
+import { runShell, awaitSessionTurn } from "./shell.js"
 import { createTypingTicker } from "./typing.js"
 import { createStream } from "./stream.js"
 
@@ -66,10 +67,11 @@ export async function startBridge(config) {
     { intervalMs: 8000 },
   )
 
-  // Review-turn tracking: settle on the first session.idle after the prompt.
-  // (Race-hardening of this helper is Task 10; failure mode is fail-closed —
-  // a wrong/absent reply parses to null verdict → REJECT.)
-  let reviewWaiter = null
+  // Review-turn tracking (Task 10): awaitSessionTurn settles on the first
+  // session.idle created after the prompt; stale idles from earlier turns are
+  // filtered by timestamp, prompt failure aborts the wait. Failure mode stays
+  // fail-closed — wrong/absent reply parses to null verdict → REJECT.
+  const idleBus = new EventEmitter()
   async function latestAssistantText() {
     const res = await openCode.session.message.list({
       sessionID: config.sessionId,
@@ -81,25 +83,30 @@ export async function startBridge(config) {
     if (!msg || msg.type !== "assistant") return ""
     return (msg.content ?? []).filter((p) => p.type === "text").map((p) => p.text).join("\n")
   }
-  function promptForReview(text) {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reviewWaiter = null
-        reject(new Error("review timed out after 120s"))
-      }, 120000)
-      reviewWaiter = () => {
-        clearTimeout(timer)
-        reviewWaiter = null
-        latestAssistantText().then(resolve, reject)
-      }
-      openCode.session
-        .prompt({ sessionID: config.sessionId, text })
-        .catch((err) => {
-          clearTimeout(timer)
-          reviewWaiter = null
-          reject(err)
-        })
+  async function promptForReview(text) {
+    const issuedAt = Date.now()
+    const ac = new AbortController()
+    const turn = awaitSessionTurn(idleBus, {
+      signal: ac.signal,
+      isStale: (ev) => (ev.created ?? 0) < issuedAt,
     })
+    let promptErr = null
+    const promptP = openCode.session.prompt({ sessionID: config.sessionId, text }).then(
+      () => null,
+      (err) => {
+        promptErr = err
+        ac.abort()
+        return null
+      },
+    )
+    try {
+      await turn
+    } catch (err) {
+      throw promptErr ?? err
+    }
+    await promptP
+    if (promptErr) throw promptErr
+    return latestAssistantText()
   }
   async function createSession() {
     const s = await openCode.session.create({})
@@ -175,7 +182,7 @@ export async function startBridge(config) {
       if (ev.data.sessionID !== config.sessionId) continue
 
       if (ev.type === "session.idle") {
-        if (reviewWaiter) reviewWaiter()
+        idleBus.emit("session.idle", ev)
         feed.disarm()
         continue
       }
