@@ -12,6 +12,7 @@ import { handleInteraction } from "./interaction.js"
 import { registerCommands } from "./commands.js"
 import { createFeedGate } from "./feed.js"
 import { runShell } from "./shell.js"
+import { createTypingTicker } from "./typing.js"
 
 const MIME_TYPES = {
   gif: "image/gif",
@@ -55,6 +56,14 @@ export async function startBridge(config) {
   }
   let depth = 0
   const bootAt = Date.now()
+
+  // Reply threading: the reply flush references the triggering message.
+  let pendingRef = null
+  // Typing indicator: armed on prompt enqueue, beat per delta, stop on ended.
+  const typing = createTypingTicker(
+    () => discord.channels.cache.get(config.channelId)?.sendTyping().catch(() => {}),
+    { intervalMs: 8000 },
+  )
 
   // Review-turn tracking: settle on the first session.idle after the prompt.
   // (Race-hardening of this helper is Task 10; failure mode is fail-closed —
@@ -125,6 +134,8 @@ export async function startBridge(config) {
     if (gate.isPaused()) return
     if (!shouldPrompt(msg)) return
     const authorName = msg.member?.displayName ?? msg.author.username
+    pendingRef = msg.id
+    typing.start()
     depth++
     queue
       .enqueue(async () => {
@@ -157,6 +168,7 @@ export async function startBridge(config) {
       }
       if (ev.type !== "session.text.delta" && ev.type !== "session.text.ended") continue
       if (ev.type === "session.text.delta") {
+        typing.beat()
         buffer.set(
           ev.data.assistantMessageID,
           (buffer.get(ev.data.assistantMessageID) ?? "") + ev.data.delta,
@@ -167,13 +179,19 @@ export async function startBridge(config) {
       buffer.delete(ev.data.assistantMessageID)
       if (!full) {
         console.log("diag: ended with empty text")
+        typing.stop()
         continue
       }
       try {
+        const ref = pendingRef
+        pendingRef = null
+        const refOpts = ref ? { reference: ref } : {}
         const { text, files: filePaths } = parseAttachments(full)
+        let firstChunk = true
         if (text.trim()) {
           for (const part of chunkMessage(text)) {
-            await postWebhook(config.webhookUrl, part)
+            await postWebhook(config.webhookUrl, part, [], firstChunk ? refOpts : {})
+            firstChunk = false
           }
         }
         if (filePaths.length > 0) {
@@ -181,11 +199,18 @@ export async function startBridge(config) {
             const bytes = readFileSync(f.path)
             return { ...f, bytes, type: mimeOf(f.name) }
           })
-          await postWebhook(config.webhookUrl, `📎 ${files.map((f) => f.name).join(" ")}`, files)
+          await postWebhook(
+            config.webhookUrl,
+            `📎 ${files.map((f) => f.name).join(" ")}`,
+            files,
+            firstChunk ? refOpts : {},
+          )
         }
         console.log(`diag: posted reply (${full.length} chars, ${filePaths.length} files)`)
       } catch (err) {
         console.error("webhook post failed:", err.message)
+      } finally {
+        typing.stop()
       }
     }
     console.log("diag: event loop ENDED (subscription closed)")
