@@ -7,12 +7,13 @@ import { createQueue } from "./queue.js"
 import { buildPrompt } from "./prompt.js"
 import { chunkMessage } from "./chunk.js"
 import { parseAttachments } from "./attachments.js"
-import { postWebhook } from "./webhook.js"
+import { postWebhook, editWebhookMessage } from "./webhook.js"
 import { handleInteraction } from "./interaction.js"
 import { registerCommands } from "./commands.js"
-import { createFeedGate } from "./feed.js"
+import { createFeedGate, formatToolLine } from "./feed.js"
 import { runShell } from "./shell.js"
 import { createTypingTicker } from "./typing.js"
+import { createStream } from "./stream.js"
 
 const MIME_TYPES = {
   gif: "image/gif",
@@ -136,6 +137,7 @@ export async function startBridge(config) {
     const authorName = msg.member?.displayName ?? msg.author.username
     pendingRef = msg.id
     typing.start()
+    feed.arm()
     depth++
     queue
       .enqueue(async () => {
@@ -153,64 +155,139 @@ export async function startBridge(config) {
       .finally(() => { depth-- })
   })
 
-  // Outbound: accumulate assistant text deltas, flush the full message on ended.
+  // Outbound: stream replies live (create → throttled edits → final edit),
+  // plus ⚡ tool feed while armed.
   const buffer = new Map()
+  const streamStates = new Map()
   ;(async () => {
     console.log("diag: event loop starting")
     for await (const ev of openCode.event.subscribe({
-      types: ["session.text.delta", "session.text.ended", "session.idle"],
+      types: [
+        "session.text.started",
+        "session.text.delta",
+        "session.text.ended",
+        "session.idle",
+        "session.tool.called",
+        "session.tool.failed",
+      ],
     })) {
       console.log(`diag: event ${ev.type} session=${ev.data?.sessionID}`)
       if (ev.data.sessionID !== config.sessionId) continue
+
       if (ev.type === "session.idle") {
         if (reviewWaiter) reviewWaiter()
+        feed.disarm()
         continue
       }
-      if (ev.type !== "session.text.delta" && ev.type !== "session.text.ended") continue
+
+      if (ev.type === "session.tool.called" || ev.type === "session.tool.failed") {
+        if (!feed.shouldPost()) continue
+        const name = ev.data.name ?? ev.data.id
+        const input = ev.type === "session.tool.called" ? ev.data.input : undefined
+        await postWebhook(config.webhookUrl, formatToolLine(name, input)).catch((err) =>
+          console.error("feed post failed:", err.message),
+        )
+        continue
+      }
+
+      if (ev.type === "session.text.started") {
+        const ref = pendingRef
+        pendingRef = null
+        let msgId = null
+        try {
+          const created = await postWebhook(config.webhookUrl, "…", [], ref ? { reference: ref } : {})
+          msgId = created?.id ?? null
+        } catch (err) {
+          console.error("stream create failed:", err.message)
+        }
+        streamStates.set(ev.data.assistantMessageID, {
+          stream: createStream({ editIntervalMs: 1500 }),
+          msgId,
+        })
+        continue
+      }
+
       if (ev.type === "session.text.delta") {
         typing.beat()
         buffer.set(
           ev.data.assistantMessageID,
           (buffer.get(ev.data.assistantMessageID) ?? "") + ev.data.delta,
         )
+        const state = streamStates.get(ev.data.assistantMessageID)
+        if (state) {
+          const { edit } = state.stream.append(ev.data.delta, Date.now())
+          if (edit && state.msgId) {
+            try {
+              await editWebhookMessage(config.webhookUrl, state.msgId, edit.slice(0, 2000))
+            } catch (err) {
+              console.error("stream edit failed:", err.message)
+            }
+          }
+        }
         continue
       }
+
+      if (ev.type !== "session.text.ended") continue
       const full = buffer.get(ev.data.assistantMessageID) || ev.data.text
       buffer.delete(ev.data.assistantMessageID)
+      const state = streamStates.get(ev.data.assistantMessageID)
+      streamStates.delete(ev.data.assistantMessageID)
+      typing.stop()
       if (!full) {
+        if (state?.msgId) {
+          await editWebhookMessage(config.webhookUrl, state.msgId, "").catch(() => {})
+        }
         console.log("diag: ended with empty text")
-        typing.stop()
         continue
       }
       try {
-        const ref = pendingRef
-        pendingRef = null
-        const refOpts = ref ? { reference: ref } : {}
         const { text, files: filePaths } = parseAttachments(full)
-        let firstChunk = true
-        if (text.trim()) {
-          for (const part of chunkMessage(text)) {
-            await postWebhook(config.webhookUrl, part, [], firstChunk ? refOpts : {})
-            firstChunk = false
-          }
-        }
-        if (filePaths.length > 0) {
-          const files = filePaths.map((f) => {
-            const bytes = readFileSync(f.path)
-            return { ...f, bytes, type: mimeOf(f.name) }
-          })
-          await postWebhook(
-            config.webhookUrl,
-            `📎 ${files.map((f) => f.name).join(" ")}`,
-            files,
-            firstChunk ? refOpts : {},
+        if (state?.msgId) {
+          // Live message exists: final edit + overflow follow-ups + attachments.
+          const base = text.slice(0, 2000)
+          await editWebhookMessage(config.webhookUrl, state.msgId, base).catch((err) =>
+            console.error("final edit failed:", err.message),
           )
+          if (text.length > 2000) {
+            for (const part of chunkMessage(text.slice(2000))) {
+              await postWebhook(config.webhookUrl, part)
+            }
+          }
+          if (filePaths.length > 0) {
+            const files = filePaths.map((f) => {
+              const bytes = readFileSync(f.path)
+              return { ...f, bytes, type: mimeOf(f.name) }
+            })
+            await postWebhook(config.webhookUrl, `📎 ${files.map((f) => f.name).join(" ")}`, files)
+          }
+        } else {
+          // No live message (create failed or no text.started): post fresh.
+          const ref = pendingRef
+          pendingRef = null
+          const refOpts = ref ? { reference: ref } : {}
+          let firstChunk = true
+          if (text.trim()) {
+            for (const part of chunkMessage(text)) {
+              await postWebhook(config.webhookUrl, part, [], firstChunk ? refOpts : {})
+              firstChunk = false
+            }
+          }
+          if (filePaths.length > 0) {
+            const files = filePaths.map((f) => {
+              const bytes = readFileSync(f.path)
+              return { ...f, bytes, type: mimeOf(f.name) }
+            })
+            await postWebhook(
+              config.webhookUrl,
+              `📎 ${files.map((f) => f.name).join(" ")}`,
+              files,
+              firstChunk ? refOpts : {},
+            )
+          }
         }
         console.log(`diag: posted reply (${full.length} chars, ${filePaths.length} files)`)
       } catch (err) {
         console.error("webhook post failed:", err.message)
-      } finally {
-        typing.stop()
       }
     }
     console.log("diag: event loop ENDED (subscription closed)")

@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { postWebhook } from "../src/webhook.js"
+import { postWebhook, editWebhookMessage } from "../src/webhook.js"
 
 test("posts JSON content when there are no files", async () => {
   let seen
@@ -48,3 +48,18 @@ test("includes message_reference as payload_json when files present", async () =
   assert.deepEqual(payload, { message_reference: { message_id: "42" } })
   assert.equal(seen.body.get("content"), "with file")
 })
+
+test("editWebhookMessage PATCHes content to webhook message endpoint", async () => {
+  let seen
+  const fakeFetch = async (url, init) => { seen = { url, init }; return { ok: true, status: 200 } }
+  await editWebhookMessage("https://discord.test/api/webhooks/1/tok", "99", "edited text", fakeFetch)
+  assert.match(seen.url, /\/messages\/99$/)
+  assert.equal(seen.init.method, "PATCH")
+  assert.deepEqual(JSON.parse(seen.init.body), { content: "edited text" })
+})
+
+test("editWebhookMessage throws on not-ok", async () => {
+  const fakeFetch = async () => ({ ok: false, status: 404 })
+  await assert.rejects(() => editWebhookMessage("https://discord.test/api/webhooks/1/tok", "99", "x", fakeFetch), /404/)
+})
+
