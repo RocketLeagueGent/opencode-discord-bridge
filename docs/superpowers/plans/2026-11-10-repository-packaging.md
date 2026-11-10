@@ -20,6 +20,7 @@
 - The GitHub repository name is `opencode-discord-bridge` and its visibility must be private.
 - Do not change Teams or delete local runtime assets.
 - Commit intended project changes when the task is complete.
+- Node.js minimum is `>=22.12.0`, matching `@discordjs/voice`'s engine requirement.
 - Do not stage the separate, unapproved voice-conversation proposal at `docs/superpowers/specs/2026-11-10-discord-voice-conversation-design.md`.
 - `/msg` is owner-only, Windows-only, fixed to local target `*`, and passes only the supplied non-empty message to `msg.exe` without a shell.
 
@@ -109,7 +110,7 @@
 - The README points to the four install/run scripts, lists required environment variables, explains optional local Piper paths, documents current slash commands, and gives `npm test` as the test command.
 
 - [ ] **Step 1: Document purpose and current behavior:** Discord channel messages go to the configured OpenCode session; replies post through the webhook; `/join` speaks replies with local Piper and `/leave` disconnects. Explicitly state that the bot does not yet transcribe incoming voice.
-- [ ] **Step 2: Document setup/configuration:** prerequisites, `install` and `run` commands for Windows and Bash, how to fill `.env` from `.env.example`, required keys (`DISCORD_BOT_TOKEN`, `WEBHOOK_URL`, `SESSION_ID`, `OWNER_USER_ID`), optional `CHANNEL_ID`, and optional local Piper executable/model paths. Do not include real IDs, tokens, or downloaded files.
+- [ ] **Step 2: Document setup/configuration:** Node.js `>=22.12.0`, `install` and `run` commands for Windows and Bash, how to fill `.env` from `.env.example`, required keys (`DISCORD_BOT_TOKEN`, `WEBHOOK_URL`, `SESSION_ID`, `OWNER_USER_ID`), optional `CHANNEL_ID`, and optional local Piper executable/model paths. Do not include real IDs, tokens, or downloaded files.
 - [ ] **Step 3: Document commands and verification:** `/status`, `/pause`, `/resume`, `/newsession`, `/actionfeed`, owner-only `/shell`, owner-only Windows `/msg` (broadcasts to all sessions on the bridge host), `/join`, `/leave`, and `npm test`; keep descriptions aligned with actual command implementations.
 - [ ] **Step 4: Review README accuracy** against the listed source files and confirm no feature, secret, or bundled Piper/model claim is invented.
 

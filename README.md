@@ -12,7 +12,7 @@ A small Node.js service that connects one Discord text channel to an OpenCode se
 
 ## Requirements
 
-- Node.js and npm.
+- Node.js **22.12.0 or later** and npm.
 - A Discord bot added to your server, with the required gateway intents enabled, including **Message Content** and **Guild Voice States**.
 - A webhook URL for posting bridge replies.
 - An OpenCode session available to the local OpenCode service.

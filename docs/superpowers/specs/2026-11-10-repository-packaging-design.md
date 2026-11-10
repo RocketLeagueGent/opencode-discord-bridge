@@ -7,6 +7,7 @@ Make the existing Discord/OpenCode bridge understandable and straightforward to 
 ## Goals and constraints
 
 - Write a readable README describing actual current behavior, configuration, setup, commands, and tests.
+- Document the dependency-required Node.js minimum (`>=22.12.0`) in both the README and package metadata.
 - Provide `install.sh`, `install.bat`, `run.sh`, and `run.bat` for dependency installation and startup.
 - Add an owner-only `/msg` slash command that broadcasts a supplied message to all Windows sessions on the bridge host.
 - Keep `.env`, Piper downloads, voice models, and other downloaded runtime assets out of Git and GitHub; keep local assets in place.
