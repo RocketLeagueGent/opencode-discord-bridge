@@ -4,7 +4,14 @@ import { registrationBody, registerCommands } from "../src/commands.js"
 
 test("registers the exact v2 command set", () => {
   const names = registrationBody().map(c => c.name).sort()
-  assert.deepEqual(names, ["actionfeed", "join", "leave", "newsession", "pause", "resume", "shell", "status"].sort())
+  assert.deepEqual(names, ["actionfeed", "join", "leave", "msg", "newsession", "pause", "resume", "shell", "status"].sort())
+})
+
+test("msg has a required string option message", () => {
+  const msg = registrationBody().find(c => c.name === "msg")
+  const message = msg.options.find(o => o.name === "message")
+  assert.equal(message.type, 3)
+  assert.equal(message.required, true)
 })
 
 test("shell has required string option cmd", () => {

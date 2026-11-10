@@ -45,6 +45,32 @@ test("non-owner /shell refused without review prompt", async () => {
   assert.match(i.calls.edited.join(" "), /owner/i)
 })
 
+test("non-owner /msg is refused without broadcasting", async () => {
+  const i = fakeInteraction({ commandName: "msg", user: { id: "someone-else" }, getString: () => "hello" })
+  let sent = false
+  await handleInteraction(i, fakeDeps({ sendSystemMessage: async () => { sent = true } }))
+  assert.equal(sent, false)
+  assert.match(i.calls.edited.join(" "), /owner/i)
+})
+
+test("owner /msg sends the original message and confirms privately", async () => {
+  const message = 'Hello "world"; & more'
+  const i = fakeInteraction({ commandName: "msg", getString: () => message })
+  const sent = []
+  await handleInteraction(i, fakeDeps({ sendSystemMessage: async (value) => { sent.push(value) } }))
+  assert.equal(i.calls.ephemeral, true)
+  assert.deepEqual(sent, [message])
+  assert.match(i.calls.edited.join(" "), /sent|broadcast/i)
+})
+
+test("/msg rejects blank messages without invoking the sender", async () => {
+  const i = fakeInteraction({ commandName: "msg", getString: () => "   " })
+  let sent = false
+  await handleInteraction(i, fakeDeps({ sendSystemMessage: async () => { sent = true } }))
+  assert.equal(sent, false)
+  assert.match(i.calls.edited.join(" "), /message|required|empty/i)
+})
+
 test("owner /shell with APPROVE runs and reports output", async () => {
   const i = fakeInteraction({ commandName: "shell", getString: () => "dir" })
   const ran = []

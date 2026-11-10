@@ -34,6 +34,26 @@ export async function handleInteraction(interaction, deps) {
     return
   }
 
+  if (name === "msg") {
+    await interaction.deferReply({ ephemeral: true })
+    if (interaction.user.id !== config.ownerUserId) {
+      await interaction.editReply("⛔ `/msg` is owner-only.")
+      return
+    }
+    const message = interaction.options.getString("message")
+    if (typeof message !== "string" || !message.trim()) {
+      await interaction.editReply("⚠️ A non-empty message is required.")
+      return
+    }
+    try {
+      await deps.sendSystemMessage(message)
+      await interaction.editReply("✅ Sent message to all Windows sessions on this computer.")
+    } catch (err) {
+      await interaction.editReply(`⚠️ /msg failed: ${err.message}`)
+    }
+    return
+  }
+
   if (name === "status") {
     await interaction.deferReply({ ephemeral: true })
     await interaction.editReply(
@@ -78,9 +98,30 @@ export async function handleInteraction(interaction, deps) {
     return
   }
 
-  if (name === "join" || name === "leave") {
+  if (name === "join") {
     await interaction.deferReply({ ephemeral: true })
-    await interaction.editReply("🔊 Voice is Phase 2 — not built yet.")
+    const channelId = deps.resolveVoiceTarget ? deps.resolveVoiceTarget(interaction) : null
+    if (!channelId) {
+      await interaction.editReply("🔊 Join a voice channel first, then use `/join`.")
+      return
+    }
+    const joined = await deps.joinVoice?.(interaction.guildId, channelId)
+    if (!joined) {
+      await interaction.editReply("🔊 I couldn't join that voice channel.")
+      return
+    }
+    await interaction.editReply(`🔊 Joined voice channel <#${channelId}>.`)
+    return
+  }
+
+  if (name === "leave") {
+    await interaction.deferReply({ ephemeral: true })
+    const left = await deps.leaveVoice?.(interaction.guildId)
+    if (!left) {
+      await interaction.editReply("🔊 I wasn't connected to a voice channel.")
+      return
+    }
+    await interaction.editReply("🔊 Left the voice channel.")
     return
   }
 

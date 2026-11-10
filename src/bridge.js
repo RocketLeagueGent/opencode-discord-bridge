@@ -15,6 +15,15 @@ import { createFeedGate, formatToolLine } from "./feed.js"
 import { runShell, awaitSessionTurn } from "./shell.js"
 import { createTypingTicker } from "./typing.js"
 import { createStream } from "./stream.js"
+import { createSpeechQueue } from "./audio.js"
+import { synthesizeWithPiper, wavToPcm48k } from "./tts.js"
+import { sendSystemMessage } from "./windows-message.js"
+import {
+  createVoiceState,
+  createVoiceJoinHandler,
+  createVoiceInteractionDeps,
+  leaveVoice as applyVoiceLeave,
+} from "./voice.js"
 
 const MIME_TYPES = {
   gif: "image/gif",
@@ -45,11 +54,13 @@ export async function startBridge(config) {
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildVoiceStates,
       GatewayIntentBits.MessageContent,
     ],
   })
   const queue = createQueue()
   const feed = createFeedGate()
+  const voiceState = createVoiceState()
   let paused = false
   const gate = {
     pause: () => { paused = true },
@@ -114,6 +125,21 @@ export async function startBridge(config) {
     return s.id
   }
 
+  const joinVoice = createVoiceJoinHandler({ channels: discord.channels, state: voiceState })
+
+  async function leaveVoiceChannel(guildId) {
+    if (!voiceState.joined || voiceState.guildId !== guildId) return false
+    applyVoiceLeave(voiceState)
+    return true
+  }
+
+  const speakQueue = createSpeechQueue({
+    synthesize: (text) => synthesizeWithPiper(text),
+    convert: (wav) => wavToPcm48k(wav),
+    speakQueue: () => voiceState.speakQueue,
+    isJoined: () => voiceState.joined,
+  })
+
   discord.on("interactionCreate", (interaction) => {
     if (!interaction.isChatInputCommand()) return
     handleInteraction(interaction, {
@@ -122,9 +148,11 @@ export async function startBridge(config) {
       gate,
       promptForReview,
       runShell,
+      sendSystemMessage,
       queueDepth: () => depth,
       uptimeMs: () => Date.now() - bootAt,
       createSession,
+      ...createVoiceInteractionDeps(joinVoice, leaveVoiceChannel),
     }).catch(async (err) => {
       console.error("interaction failed:", err.message)
       try {
@@ -240,6 +268,13 @@ export async function startBridge(config) {
       const state = streamStates.get(ev.data.assistantMessageID)
       streamStates.delete(ev.data.assistantMessageID)
       typing.stop()
+      if (voiceState.joined && full && full.trim()) {
+        try {
+          void speakQueue.enqueue(full.trim())
+        } catch (err) {
+          console.error("tts enqueue failed:", err.message)
+        }
+      }
       if (!full) {
         if (state?.msgId) {
           await editWebhookMessage(config.webhookUrl, state.msgId, "").catch(() => {})

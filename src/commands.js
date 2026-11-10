@@ -31,6 +31,13 @@ export const COMMANDS = [
       { name: "cmd", description: "The command to review and run", type: STRING, required: true },
     ],
   },
+  {
+    name: "msg",
+    description: "Broadcast a message to Windows sessions on this computer (owner only)",
+    options: [
+      { name: "message", description: "Message to display", type: STRING, required: true },
+    ],
+  },
   { name: "join", description: "Join your current voice channel and speak replies aloud" },
   { name: "leave", description: "Leave the voice channel" },
 ]
