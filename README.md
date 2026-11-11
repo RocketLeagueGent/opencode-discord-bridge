@@ -36,6 +36,8 @@ Edit `.env`, then run:
 run.bat
 ```
 
+**Updating to the latest GitHub version:** run `sync.bat` (or `bash ./sync.sh`). It fetches, fast-forwards to the latest commit, auto-stashes any local edits (restorable with `git stash pop`), and refreshes dependencies. Your `.env`, Piper files, and voice models are untracked/ignored and are never touched.
+
 **Bash** (Linux, macOS, or Git Bash):
 
 ```bash
