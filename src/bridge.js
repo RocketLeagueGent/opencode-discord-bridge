@@ -169,7 +169,9 @@ export async function startBridge(config) {
     if (msg.channelId !== config.channelId) return
     if (gate.isPaused()) return
     if (!shouldPrompt(msg)) return
-    const authorName = msg.member?.displayName ?? msg.author.username
+    // Identity: use the immutable author ID, never the guild nickname/display
+    // name — display names are user-set and can be used to impersonate others.
+    const authorName = `${msg.author.username} (${msg.author.id})`
     pendingRef = msg.id
     typing.start()
     feed.arm()
