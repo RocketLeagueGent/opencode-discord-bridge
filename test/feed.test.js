@@ -22,21 +22,37 @@ test("toggle switch respects global off", () => {
   assert.equal(g.shouldPost(), false)
 })
 
-test("formats tool line with input summary", () => {
-  assert.equal(formatToolLine("shell", { command: "dir" }), "⚡ shell — {\"command\":\"dir\"}")
+test("formats tool line as human-readable activity", () => {
+  assert.equal(
+    formatToolLine("read", { path: "C:\\repo\\install.sh" }),
+    "⚡ OpenCode used the read tool — path: C:\\repo\\install.sh",
+  )
+})
+
+test("falls back to JSON for objects without interesting keys", () => {
+  assert.equal(formatToolLine("shell", { foo: "bar" }), '⚡ OpenCode used the shell tool — {"foo":"bar"}')
+})
+
+test("renders command as key-value", () => {
+  assert.equal(formatToolLine("shell", { command: "dir" }), "⚡ OpenCode used the shell tool — command: dir")
+})
+
+test("joins multiple interesting keys", () => {
+  const line = formatToolLine("edit", { path: "a.txt", description: "fix" })
+  assert.equal(line, "⚡ OpenCode used the edit tool — path: a.txt • description: fix")
 })
 
 test("truncates long summaries at 80 content chars", () => {
   const line = formatToolLine("edit", { path: "x".repeat(200) })
-  assert.ok(line.length <= "⚡ edit — ".length + 81, `len ${line.length}`)
+  assert.ok(line.length <= "⚡ OpenCode used the edit tool — ".length + 81, `len ${line.length}`)
   assert.match(line, /…$/)
 })
 
 test("collapses newlines in summary", () => {
-  const line = formatToolLine("shell", { cmd: "a\nb" })
+  const line = formatToolLine("shell", { command: "a\nb" })
   assert.ok(!line.includes("\n"))
 })
 
-test("no input yields bare tool name", () => {
-  assert.equal(formatToolLine("write", undefined), "⚡ write")
+test("no input yields readable bare line", () => {
+  assert.equal(formatToolLine("write", undefined), "⚡ OpenCode used the write tool")
 })
